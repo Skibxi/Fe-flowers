@@ -1,0 +1,456 @@
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- STORE ORIGINAL LIGHTING SETTINGS
+local originalFogColor = Lighting.FogColor
+local originalFogEnd = Lighting.FogEnd
+local originalBrightness = Lighting.Brightness
+local originalAmbient = Lighting.Ambient
+local originalOutdoorAmbient = Lighting.OutdoorAmbient
+local originalColorShift_Top = Lighting.ColorShift_Top
+local originalColorShift_Bottom = Lighting.ColorShift_Bottom
+
+-- SOUNDS
+local PreSound = Instance.new("Sound")
+PreSound.SoundId = "rbxassetid://9118744547"
+PreSound.Volume = 0.7
+PreSound.Parent = SoundService
+
+local WhistleSound = Instance.new("Sound")
+WhistleSound.SoundId = "rbxassetid://313948389"
+WhistleSound.Looped = true
+WhistleSound.Volume = 0.7
+WhistleSound.Parent = SoundService
+
+-- ANIMATIONS
+local PreAnimationId = "rbxassetid://121050026896380"
+local FlowerAnimations = {
+    "rbxassetid://118235512746687",
+    "rbxassetid://88176506660586"
+}
+
+-- DIALOGUE/SUBTITLE UI (NO BACKGROUND)
+local DialogueUI = Instance.new("ScreenGui")
+DialogueUI.Name = "FlowersDialogue"
+DialogueUI.ResetOnSpawn = false
+DialogueUI.Parent = PlayerGui
+
+local DialogueFrame = Instance.new("Frame")
+DialogueFrame.Size = UDim2.new(0.6, 0, 0.15, 0)
+DialogueFrame.Position = UDim2.new(0.2, 0, 0.7, 0)
+DialogueFrame.BackgroundTransparency = 1 -- COMPLETELY TRANSPARENT
+DialogueFrame.BorderSizePixel = 0
+DialogueFrame.Visible = false
+DialogueFrame.Parent = DialogueUI
+
+local DialogueText = Instance.new("TextLabel")
+DialogueText.Size = UDim2.new(1, 0, 0.7, 0)
+DialogueText.Position = UDim2.new(0, 0, 0.15, 0)
+DialogueText.Text = ""
+DialogueText.Font = Enum.Font.GothamMedium
+DialogueText.TextSize = 20 -- Slightly larger for better visibility
+DialogueText.TextColor3 = Color3.new(1, 1, 1)
+DialogueText.TextStrokeColor3 = Color3.new(0, 0, 0)
+DialogueText.TextStrokeTransparency = 0.3 -- More visible stroke
+DialogueText.BackgroundTransparency = 1
+DialogueText.TextWrapped = true
+DialogueText.TextXAlignment = Enum.TextXAlignment.Center -- Centered text
+DialogueText.Parent = DialogueFrame
+
+local SpeakerName = Instance.new("TextLabel")
+SpeakerName.Size = UDim2.new(1, 0, 0.2, 0)
+SpeakerName.Position = UDim2.new(0, 0, 0, 0)
+SpeakerName.Text = "VOICE"
+SpeakerName.Font = Enum.Font.GothamBold
+SpeakerName.TextSize = 16
+SpeakerName.TextColor3 = Color3.new(1, 0.3, 0.3) -- Brighter red for better visibility
+SpeakerName.BackgroundTransparency = 1
+SpeakerName.TextXAlignment = Enum.TextXAlignment.Center -- Centered
+SpeakerName.Parent = DialogueFrame
+
+-- SKIP BUTTON (MOVED TO BOTTOM CORNER)
+local SkipButton = Instance.new("TextButton")
+SkipButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+SkipButton.Position = UDim2.new(0.85, 0, 0.9, 0)
+SkipButton.Text = "SKIP (ESC)"
+SkipButton.Visible = false
+SkipButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+SkipButton.BackgroundTransparency = 0.7 -- Semi-transparent
+SkipButton.TextColor3 = Color3.new(1, 1, 1)
+SkipButton.Font = Enum.Font.GothamBold
+SkipButton.TextSize = 12
+SkipButton.BorderSizePixel = 0
+SkipButton.Parent = DialogueUI -- Parent to main UI, not dialogue frame
+
+-- TOGGLE UI
+local ToggleUI = Instance.new("ScreenGui")
+ToggleUI.Name = "FlowersToggle"
+ToggleUI.ResetOnSpawn = false
+ToggleUI.Parent = PlayerGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 200, 0, 80)
+MainFrame.Position = UDim2.new(0.5, -100, 0, 20)
+MainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ToggleUI
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0.9, 0, 0.7, 0)
+ToggleButton.Position = UDim2.new(0.05, 0, 0.15, 0)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
+ToggleButton.Text = "Become Flowers (OFF)"
+ToggleButton.Font = Enum.Font.Gotham
+ToggleButton.TextSize = 14
+ToggleButton.Parent = MainFrame
+
+-- ANIMATION SYSTEM
+local Animator
+local PreAnimTrack
+local FlowerTracks = {}
+
+-- STRETCHING SYSTEM (CLIENT-SIDED)
+local StretchConnections = {}
+local IsStretching = false
+
+-- CLIENT-SIDED NAMETAG SYSTEM
+local CustomNameTag = nil
+local DarkRedColor = Color3.fromRGB(139, 0, 0) -- Dark red color
+
+local function CreateCustomNameTag()
+    if not Player.Character then return end
+    
+    local head = Player.Character:FindFirstChild("Head")
+    if not head then return end
+    
+    -- Remove existing custom name tag if any
+    if CustomNameTag then
+        CustomNameTag:Destroy()
+        CustomNameTag = nil
+    end
+    
+    -- Create BillboardGui for custom name tag
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "FlowersNameTag"
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0) -- Position above head
+    billboard.AlwaysOnTop = true
+    billboard.MaxDistance = 50
+    billboard.Parent = head
+    
+    -- Create text label
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.Text = "פרחים"
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 16
+    nameLabel.TextColor3 = DarkRedColor
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.TextStrokeTransparency = 0.3
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Parent = billboard
+    
+    CustomNameTag = billboard
+end
+
+local function RemoveCustomNameTag()
+    if CustomNameTag then
+        CustomNameTag:Destroy()
+        CustomNameTag = nil
+    end
+end
+
+local function ApplyStretchEffect(character)
+    if not character or not character:FindFirstChild("Humanoid") then return end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoidRootPart then return end
+    
+    -- Store original sizes
+    local originalHipHeight = humanoid.HipHeight
+    local originalBodyDepth = humanoid.BodyDepthScale
+    local originalBodyWidth = humanoid.BodyWidthScale
+    local originalBodyHeight = humanoid.BodyHeightScale
+    local originalHeadScale = humanoid.HeadScale
+    
+    -- Create stretching effect
+    IsStretching = true
+    
+    -- Tween to stretched state
+    local stretchTween = TweenService:Create(
+        humanoid,
+        TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            HipHeight = originalHipHeight * 1.8,
+            BodyDepthScale = originalBodyDepth * 0.6,
+            BodyWidthScale = originalBodyWidth * 0.6,
+            BodyHeightScale = originalBodyHeight * 2.5,
+            HeadScale = originalHeadScale * 0.8
+        }
+    )
+    stretchTween:Play()
+    
+    -- Store original values for reversal
+    StretchConnections[character] = {
+        Humanoid = humanoid,
+        OriginalHipHeight = originalHipHeight,
+        OriginalBodyDepth = originalBodyDepth,
+        OriginalBodyWidth = originalBodyWidth,
+        OriginalBodyHeight = originalBodyHeight,
+        OriginalHeadScale = originalHeadScale,
+        Tween = stretchTween
+    }
+end
+
+local function RemoveStretchEffect(character)
+    if not character or not StretchConnections[character] then return end
+    
+    local data = StretchConnections[character]
+    IsStretching = false
+    
+    -- Tween back to normal
+    local reverseTween = TweenService:Create(
+        data.Humanoid,
+        TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            HipHeight = data.OriginalHipHeight,
+            BodyDepthScale = data.OriginalBodyDepth,
+            BodyWidthScale = data.OriginalBodyWidth,
+            BodyHeightScale = data.OriginalBodyHeight,
+            HeadScale = data.OriginalHeadScale
+        }
+    )
+    reverseTween:Play()
+    
+    StretchConnections[character] = nil
+end
+
+local function SetupCharacter(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    Animator = humanoid:WaitForChild("Animator")
+    
+    -- Pre-animation
+    local preAnim = Instance.new("Animation")
+    preAnim.AnimationId = PreAnimationId
+    PreAnimTrack = Animator:LoadAnimation(preAnim)
+    PreAnimTrack.Priority = Enum.AnimationPriority.Action
+    
+    -- Flower animations
+    FlowerTracks = {}
+    for i, id in ipairs(FlowerAnimations) do
+        local anim = Instance.new("Animation")
+        anim.AnimationId = id
+        FlowerTracks[i] = Animator:LoadAnimation(anim)
+        FlowerTracks[i].Looped = true
+        FlowerTracks[i].Priority = Enum.AnimationPriority.Movement
+    end
+    
+    -- Apply effects if already active
+    if IsActive then
+        task.wait(0.5) -- Wait for character to fully load
+        ApplyStretchEffect(character)
+        CreateCustomNameTag()
+    end
+end
+
+-- Initial character setup
+if Player.Character then SetupCharacter(Player.Character) end
+Player.CharacterAdded:Connect(SetupCharacter)
+
+-- Handle character removal
+Player.CharacterRemoving:Connect(function(character)
+    if StretchConnections[character] then
+        StretchConnections[character] = nil
+    end
+    RemoveCustomNameTag()
+end)
+
+-- DIALOGUE SEQUENCE
+local DialogueLines = {
+    "Something feels different...",
+    "Do you hear that sound?",
+    "It's getting louder...",
+    "YOU HEARD THE WHISTLE!",
+    "YOU CAN'T ESCAPE!"
+}
+
+local IsActive = false
+local DialoguePlaying = false
+local SkipDialogue = false
+
+local function ShowDialogue(text)
+    DialogueText.Text = text
+    DialogueFrame.Visible = true
+    
+    -- Typewriter effect
+    local fullText = text
+    DialogueText.Text = ""
+    for i = 1, #fullText do
+        if SkipDialogue then break end
+        DialogueText.Text = string.sub(fullText, 1, i)
+        wait(0.03) -- Typing speed
+    end
+    DialogueText.Text = fullText
+end
+
+local function HideDialogue()
+    DialogueFrame.Visible = false
+    DialogueText.Text = ""
+end
+
+local function PlayDialogueSequence()
+    if DialoguePlaying then return false end
+    DialoguePlaying = true
+    SkipDialogue = false
+    
+    SkipButton.Visible = true
+    
+    -- Play pre-animation and sound
+    if PreAnimTrack then
+        PreSound:Play()
+        PreAnimTrack:Play()
+        
+        -- Create custom name tag when pre-animation starts
+        delay(0.5, function()
+            CreateCustomNameTag()
+        end)
+    end
+    
+    -- Play each dialogue line
+    for i, line in ipairs(DialogueLines) do
+        if SkipDialogue then break end
+        ShowDialogue(line)
+        
+        -- Different timing for different lines
+        local waitTime = 2
+        if i == 3 then  -- "It's getting louder..."
+            waitTime = 2.5
+            if PreAnimTrack and PreAnimTrack.IsPlaying then
+                PreAnimTrack:AdjustSpeed(1.5)
+            end
+        elseif i >= 4 then  -- Climax lines
+            waitTime = 3
+        end
+        
+        wait(waitTime)
+    end
+    
+    -- Clean up
+    HideDialogue()
+    SkipButton.Visible = false
+    if PreAnimTrack and PreAnimTrack.IsPlaying then
+        PreAnimTrack:Stop()
+    end
+    DialoguePlaying = false
+    return not SkipDialogue
+end
+
+local function StartFlowerTransformation()
+    WhistleSound:Play()
+    
+    -- Play flower animations
+    for _, track in pairs(FlowerTracks) do
+        if track then track:Play() end
+    end
+    
+    -- Apply stretch effect
+    if Player.Character then
+        ApplyStretchEffect(Player.Character)
+    end
+    
+    -- Set environment to dark red theme
+    Lighting.FogColor = Color3.new(0.15, 0, 0)
+    Lighting.FogEnd = 75
+    Lighting.Brightness = 0.2
+    Lighting.Ambient = Color3.new(0.2, 0, 0)
+    Lighting.OutdoorAmbient = Color3.new(0.15, 0, 0)
+    Lighting.ColorShift_Top = Color3.new(0.3, 0, 0)
+    Lighting.ColorShift_Bottom = Color3.new(0.2, 0, 0)
+end
+
+local function StopFlowerTransformation()
+    WhistleSound:Stop()
+    
+    -- Stop animations
+    for _, track in pairs(FlowerTracks) do
+        if track then track:Stop() end
+    end
+    
+    -- Remove stretch effect
+    if Player.Character then
+        RemoveStretchEffect(Player.Character)
+    end
+    
+    -- Remove custom name tag
+    RemoveCustomNameTag()
+    
+    -- RESTORE ORIGINAL LIGHTING SETTINGS
+    Lighting.FogColor = originalFogColor
+    Lighting.FogEnd = originalFogEnd
+    Lighting.Brightness = originalBrightness
+    Lighting.Ambient = originalAmbient
+    Lighting.OutdoorAmbient = originalOutdoorAmbient
+    Lighting.ColorShift_Top = originalColorShift_Top
+    Lighting.ColorShift_Bottom = originalColorShift_Bottom
+end
+
+-- SKIP FUNCTIONALITY
+SkipButton.MouseButton1Click:Connect(function()
+    SkipDialogue = true
+    HideDialogue()
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Escape and DialoguePlaying then
+        SkipDialogue = true
+        HideDialogue()
+    end
+end)
+
+-- TOGGLE FUNCTION
+local function ToggleFlowers()
+    if DialoguePlaying then return end
+    
+    IsActive = not IsActive
+    
+    if IsActive then
+        ToggleButton.Text = "Cancel Transformation (ON)"
+        local success = PlayDialogueSequence()
+        
+        if success then
+            StartFlowerTransformation()
+        else
+            -- Cancelled
+            IsActive = false
+            ToggleButton.Text = "Become Flowers (OFF)"
+            PreSound:Stop()
+            RemoveCustomNameTag()
+            -- Also restore lighting if cancelled
+            Lighting.FogColor = originalFogColor
+            Lighting.FogEnd = originalFogEnd
+            Lighting.Brightness = originalBrightness
+            Lighting.Ambient = originalAmbient
+            Lighting.OutdoorAmbient = originalOutdoorAmbient
+            Lighting.ColorShift_Top = originalColorShift_Top
+            Lighting.ColorShift_Bottom = originalColorShift_Bottom
+        end
+    else
+        StopFlowerTransformation()
+        ToggleButton.Text = "Become Flowers (OFF)"
+    end
+end
+
+ToggleButton.MouseButton1Click:Connect(ToggleFlowers)
